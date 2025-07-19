@@ -26,7 +26,7 @@ substitutions:
   # Define logging level: NONE, ERROR, WARN, INFO, DEBUG (Default), VERBOSE, VERY_VERBOSE
   log_level: "DEBUG"
   # Enable or disable the use of IPv6 networking on the device
-  ipv6_enable: "false"
+  ipv6_enable: "true"
 
 esphome:
   name: "${name}"
