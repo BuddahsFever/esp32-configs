@@ -81,8 +81,8 @@ wifi:
 
 captive_portal:
 
-esp32_improv:
-  authorizer: none
+# esp32_improv:
+  # authorizer: none
 
 dashboard_import:
   package_import_url: github://athom-tech/esp32-configs/athom-presence-sensor-v3.yaml
