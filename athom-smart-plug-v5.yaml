@@ -1,16 +1,22 @@
 substitutions:
   # Default name
-  name: "athom-rf-ir-remote"
-  # Default friendly name
-  friendly_name: "Athom RF IR Remote"
-  # Allows ESP device to be automatically linked to an 'Area' in Home Assistant. Typically used for areas such as 'Lounge Room', 'Kitchen' etc
+  name: "athom-smart-plug-v5"
+  # Default friendly name   
+  friendly_name: "Athom Plug V5"
+  # Allows ESP device to be automatically linked to an 'Area' in Home Assistant. Typically used for areas such as 'Lounge Room', 'Kitchen' etc  
   room: ""
   # Description as appears in ESPHome & top of webserver page
-  device_description: "athom esp32 RF433 IR Remote"
+  device_description: "athom esp32-c5 power monitoring smart plug"
   # Project Name
-  project_name: "China Athom Technology.Athom RF IR Remote"
+  project_name: "China Athom Technology.Athom Plug V5"
   # Projection version denotes the release version of the yaml file, allowing checking of deployed vs latest version
-  project_version: "v3.0.1"
+  project_version: "v5.0.1"
+  # Restore the relay (GPO switch) upon reboot to state:
+  relay_restore_mode: RESTORE_DEFAULT_ON
+  # Set the update interval for sensors
+  sensor_update_interval: 10s
+  # Current Limit in Amps. AU Plug = 10. IL, BR, EU, UK, US Plug = 16.
+  current_limit : "16"
   # Define a domain for this device to use. i.e. iot.home.lan (so device will appear as athom-smart-plug-v2.iot.home.lan in DNS/DHCP logs)
   dns_domain: ".local"
   # Set timezone of the smart plug. Useful if the plug is in a location different to the HA server. Can be entered in unix Country/Area format (i.e. "Australia/Sydney")
@@ -20,43 +26,59 @@ substitutions:
   # Network time servers for your region, enter from lowest to highest priority. To use local servers update as per zones or countries at: https://www.ntppool.org/zone/@
   sntp_server_1: "0.pool.ntp.org"
   sntp_server_2: "1.pool.ntp.org"
-  sntp_server_3: "2.pool.ntp.org"
+  sntp_server_3: "2.pool.ntp.org"  
   # Enables faster network connections, with last connected SSID being connected to and no full scan for SSID being undertaken
   wifi_fast_connect: "false"
   # Define logging level: NONE, ERROR, WARN, INFO, DEBUG (Default), VERBOSE, VERY_VERBOSE
   log_level: "DEBUG"
   # Enable or disable the use of IPv6 networking on the device
   ipv6_enable: "false"
-  # valid value: ballu, coolix, daikin, daikin_arc, daikin_brc, delonghi, emmeti, fujitsu_general, gree, hitachi_ac344, hitachi_ac424, climate_ir_lg, midea_ir, mitsubishi, noblex, tcl112, toshiba, whirlpool, yashima, whynter, zhlt01, heatpumpir
-  # https://esphome.io/components/climate/climate_ir/
-  AC_Platform_name: "coolix"
+  # Power plug icon selection. Change to reflect the type/country of powr plug in use, this will update the power plug icon shown next to the switch
+  power_plug_type: "power-socket-eu"  # Options: power-socket-au | power-socket-ch | power-socket-de | power-socket-eu | power-socket-fr | power-socket-it | power-socket-jp | power-socket-uk | power-socket-us |
 
-#########################GPIO######################
-  RF_RX_PIN: GPIO19
-  RF_TX_PIN: GPIO18
-  IR_RX_PIN: GPIO33
-  IR_TX_PIN: GPIO25
-  Button_PIN: GPIO0
-  LED_PIN: GPIO27
-#########################GPIO######################
+########################## End of Substitutions #########################
 
 esphome:
   name: "${name}"
   friendly_name: "${friendly_name}"
   comment: "${device_description}"
-  area: "${room}"
+  area: "${room}"  
   name_add_mac_suffix: true
   min_version: 2026.5.1
   project:
     name: "${project_name}"
     version: "${project_version}"
   platformio_options:
-    board_build.flash_mode: dio
+    board_build.mcu: esp32c5
+    board_build.variant: esp32c5
+    board_build.flash_mode: qio
+  on_boot:
+    - priority: 600
+      then:
+        - select.set_index:
+            id: power_mode
+            index: !lambda |-
+                    return id(restore_mode)-1;
+        - lambda: |-
+              switch(id(restore_mode))
+              {
+              case 1:{
+                      id(relay).turn_off();
+                      break;
+                            }
+              case 2:{
+                      id(relay).turn_on();
+                      break;
+                            }
+              default:{
+                      break;
+                            }
+              }
 
 esp32:
-  board: esp32dev
-  variant: esp32
-  flash_size: 8MB
+  board: esp32-c5-devkitc1-n4
+  flash_size: 4MB
+  variant: ESP32C5
   framework:
     type: esp-idf
     version: recommended
@@ -64,16 +86,18 @@ esp32:
       # @grigi found in testing that these options resulted in better responsiveness.
       # BLE 4.2 is supported by ALL ESP32 boards that have bluetooth, the original and derivatives.
       CONFIG_BT_BLE_42_FEATURES_SUPPORTED: y
+      # Also enable this on any derivative boards (S2, C3 etc) but not the original ESP32.
+      CONFIG_BT_BLE_50_FEATURES_SUPPORTED: y
       # Extend the watchdog timeout, so the device reboots if the device appears locked up for over 10 seconds.
       CONFIG_ESP_TASK_WDT_TIMEOUT_S: "10"
 
 preferences:
-  flash_write_interval: 1min
+  flash_write_interval: 5min
 
 api:
-  reboot_timeout: 0s
+  # reboot_timeout: 0s
   # Only enable BLE tracking when wifi is up and api is connected
-  # Gives single-core ESP32-C3 devices time to manage wifi and authenticate with api
+  # Gives single-core ESP32-C5 devices time to manage wifi and authenticate with api
   on_client_connected:
      - esp32_ble_tracker.start_scan:
         continuous: true
@@ -90,7 +114,7 @@ ota:
   - platform: esphome
 
 logger:
-  baud_rate: 0
+  baud_rate: 0  # 0 Enables logging, but disables serial-port logging to free CPU and memory
   level: ${log_level}
 
 mdns:
@@ -111,6 +135,11 @@ wifi:
   # Define dns domain / suffix to add to hostname
   domain: "${dns_domain}"
 
+captive_portal:
+
+esp32_improv:
+  authorizer: none
+
 esp32_ble_tracker:
   scan_parameters:
     # Don't auto start BLE scanning, we control it in the `api` block's automation.
@@ -124,90 +153,62 @@ esp32_ble_tracker:
 bluetooth_proxy:
   active: true
 
-captive_portal:
-
-esp32_improv:
-  authorizer: none
-
 dashboard_import:
-  package_import_url: github://athom-tech/esp32-configs/athom-rf-ir-remote.yaml
+  package_import_url: github://athom-tech/esp32-configs/athom-smart-plug-v5.yaml
 
-remote_receiver:
-  - pin:
-      number: ${RF_RX_PIN}
-      inverted: true
-    dump: rc_switch
-    tolerance: 25%
-    id: rf_receiver
+uart:
+  rx_pin: GPIO12
+  tx_pin: GPIO11
+  baud_rate: 4800
+  stop_bits: 1
 
-  - pin:
-      number: ${IR_RX_PIN}
-      inverted: true
-    dump: all
-    tolerance: 25%
-    id: ir_receiver
 
-remote_transmitter:
-  - pin:
-      number: ${RF_TX_PIN}
-    # OOK modulation for RF433 — keep duty at 100%
-    carrier_duty_percent: 100%
-    non_blocking: true
-    id: rf_transmitter
+globals:
+  - id: total_energy
+    type: float
+    restore_value: yes
+    initial_value: '0.0'
 
-  - pin:
-      number: ${IR_TX_PIN}
-      inverted: false
-    carrier_duty_percent: 50%
-    non_blocking: true
-    id: ir_transmitter
+  - id: restore_mode
+    type: int
+    restore_value: yes
+    initial_value: "2"      # 0 = Always_Off. 1 = Restore_Power_Off. 2 = Always_On.
 
-infrared:
-  - platform: ir_rf_proxy
-    name: IR Proxy Transmitter
-    id: ir_proxy_transmitter
-    remote_transmitter_id: ir_transmitter
-
-  - platform: ir_rf_proxy
-    name: IR Proxy Receiver
-    id: ir_proxy_receiver
-    receiver_frequency: 38kHz
-    remote_receiver_id: ir_receiver
-
-  # RF transmitter instance
-radio_frequency:
-  - platform: ir_rf_proxy
-    name: 433MHz RF Transmitter
-    id: rf_proxy_transmitter
-    frequency: 433.92MHz
-    remote_transmitter_id: rf_transmitter
-
-  - platform: ir_rf_proxy
-    name: 433MHz RF Receiver
-    id: rf_proxy_receiver
-    frequency: 433.92MHz
-    remote_receiver_id: rf_receiver
-
-climate:
-  - platform: ${AC_Platform_name}
-    transmitter_id: ir_transmitter
-    name: "AC"
-    receiver_id: ir_receiver
+select:
+  - platform: template
+    name: "Power On State"
+    id: "power_mode"
+    optimistic: true
+    icon: mdi:electric-switch
+    options:
+      - Always Off
+      - Always On
+      - Restore Power Off State
+    on_value:
+      then:
+        - lambda: |-
+            id(restore_mode)=i+1;
 
 binary_sensor:
   - platform: status
     name: "Status"
-    entity_category: "diagnostic"
+    icon: mdi:check-network-outline
+    entity_category: diagnostic    
 
   - platform: gpio
     pin:
-      number: ${Button_PIN}
-      mode:
-        input: true
+      number: GPIO10
+      mode: INPUT_PULLUP
       inverted: true
-    name: "Button"
+    name: "Power Button"
+    id: power_button
     disabled_by_default: true
     on_multi_click:
+      - timing:
+          - ON for at most 1s
+          - OFF for at least 0.2s
+        then:
+          - switch.toggle: relay
       - timing:
           - ON for at least 4s
         then:
@@ -236,6 +237,74 @@ sensor:
     entity_category: "diagnostic"
     device_class: ""
 
+  - platform: bl0942
+    id: bl0942_sensor
+    voltage:
+      name: "Voltage"
+      icon: mdi:sine-wave
+      filters:
+        - throttle_average: ${sensor_update_interval}
+
+    current:
+      name: "Current"
+      icon: mdi:current-ac
+      filters:
+        - throttle_average: ${sensor_update_interval}
+      on_value_range:
+        - above: ${current_limit}
+          then:
+            - switch.turn_off: relay
+
+    power:
+      name: "Power"
+      id: power_sensor
+      icon: mdi:power
+      filters:
+        - throttle_average: ${sensor_update_interval}
+
+    frequency:
+      name: "Frequency"
+
+    energy:
+      name: "Energy"
+      id: energy
+      icon: mdi:lightning-bolt
+      unit_of_measurement: kWh
+      filters:
+        - throttle: ${sensor_update_interval}
+        # Multiplication factor from W to kW is 0.001
+        - multiply: 0.001
+      on_value:
+        then:
+          - lambda: |-
+              static float previous_energy_value = 0.0;
+              float current_energy_value = id(energy).state;
+              id(total_energy) += current_energy_value - previous_energy_value;
+              previous_energy_value = current_energy_value;
+              id(total_energy_sensor).update();
+
+  - platform: template
+    name: "Total Energy"
+    id: total_energy_sensor
+    unit_of_measurement: kWh
+    device_class: "energy"
+    state_class: "total_increasing"
+    icon: mdi:lightning-bolt
+    accuracy_decimals: 3
+    lambda: |-
+      return id(total_energy);
+    update_interval: ${sensor_update_interval}
+
+  - platform: total_daily_energy
+    name: "Total Daily Energy"
+    restore: true
+    power_id: power_sensor
+    unit_of_measurement: kWh
+    icon: mdi:hours-24
+    accuracy_decimals: 3
+    filters:
+      - multiply: 0.001
+
 button:
   - platform: restart
     name: "Restart"
@@ -251,29 +320,42 @@ button:
     internal: false
     entity_category: config
 
+switch:
+  - platform: gpio
+    name: "Switch"
+    pin: GPIO23
+    id: relay
+    restore_mode: ${relay_restore_mode}
+    icon: mdi:${power_plug_type}
+
 light:
   - platform: status_led
     name: "Status LED"
+    id: blue_led
+    icon: mdi:lightbulb-outline
     disabled_by_default: true
-    pin: ${LED_PIN}
+    pin:
+      inverted: true
+      number: GPIO6
 
 text_sensor:
   - platform: wifi_info
     ip_address:
       name: "IP Address"
-      id: ip_address
+      icon: mdi:ip-network
       entity_category: diagnostic
     ssid:
       name: "Connected SSID"
-      id: ssid
+      icon: mdi:wifi-strength-2
       entity_category: diagnostic
     mac_address:
       name: "Mac Address"
-      id: mac_address
+      icon: mdi:network-pos
       entity_category: diagnostic
 
+  #  Creates a sensor showing when the device was last restarted
   - platform: template
-    name: "Last Restart"
+    name: 'Last Restart'
     id: device_last_restart
     icon: mdi:clock
     entity_category: diagnostic
@@ -286,10 +368,10 @@ time:
   # Change sync interval from default 5min to 6 hours (or as set in substitutions)
     update_interval: ${sntp_update_interval}
   # Set specific sntp servers to use
-    servers:
+    servers: 
       - "${sntp_server_1}"
       - "${sntp_server_2}"
-      - "${sntp_server_3}"
+      - "${sntp_server_3}"    
   # Publish the time the device was last restarted
     on_time_sync:
       then:
